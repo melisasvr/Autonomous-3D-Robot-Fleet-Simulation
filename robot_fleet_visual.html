@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🧠 Autonomous 3D Robot Fleet</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            overflow: hidden;
+            color: #fff;
+        }
+        
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+
+        #vision-canvas {
+            position: absolute;
+            top: 20px;
+            right: 360px;
+            border: 2px solid rgba(100, 200, 255, 0.5);
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 100;
+        }
+        
+        #info-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 12px;
+            border: 2px solid rgba(100, 200, 255, 0.3);
+            backdrop-filter: blur(10px);
+            max-width: 320px;
+            z-index: 100;
+        }
+        
+        #info-panel h2 {
+            font-size: 18px;
+            margin-bottom: 15px;
+            color: #64c8ff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+            font-size: 13px;
+            padding: 6px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+        }
+        
+        .stat-label {
+            color: #aaa;
+        }
+        
+        .stat-value {
+            color: #64c8ff;
+            font-weight: bold;
+        }
+        
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 12px;
+            z-index: 100;
+        }
+        
+        button {
+            padding: 12px 24px;
+            background: rgba(100, 200, 255, 0.2);
+            border: 2px solid rgba(100, 200, 255, 0.5);
+            color: #fff;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+            backdrop-filter: blur(10px);
+        }
+        
+        button:hover {
+            background: rgba(100, 200, 255, 0.4);
+            border-color: #64c8ff;
+            transform: translateY(-2px);
+        }
+        
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 200;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 40px;
+            border-radius: 12px;
+            line-height: 1.6;
+        }
+        
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(100, 200, 255, 0.3);
+            border-top-color: #64c8ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .legend {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 12px;
+            border: 2px solid rgba(100, 200, 255, 0.3);
+            backdrop-filter: blur(10px);
+            z-index: 100;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 8px 0;
+            font-size: 12px;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .webgpu-badge {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(76, 175, 80, 0.2);
+            border: 2px solid rgba(76, 175, 80, 0.5);
+            color: #4CAF50;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+    
+    <canvas id="vision-canvas" width="320" height="240" style="display: none;"></canvas>
+    
+    <div id="loading">
+        <div class="spinner"></div>
+        <div>Loading Pyodide & Initializing Simulation...</div>
+    </div>
+    
+    <div id="info-panel" style="display: none;">
+        <h2>🤖 Fleet Status</h2>
+        <div class="stat-row">
+            <span class="stat-label">Timestep:</span>
+            <span class="stat-value" id="timestep">0</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Active Agents:</span>
+            <span class="stat-value" id="agents">0</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Hazards Detected:</span>
+            <span class="stat-value" id="hazards">0</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Avg Reward:</span>
+            <span class="stat-value" id="reward">0.00</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Physics FPS:</span>
+            <span class="stat-value" id="physics-fps">60</span>
+        </div>
+        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(100, 200, 255, 0.3);">
+            <div style="font-size: 12px; color: #aaa; margin-bottom: 8px;">Role Distribution:</div>
+            <div id="roles"></div>
+        </div>
+    </div>
+    
+    <div class="legend" style="display: none;">
+        <div class="legend-item">
+            <div class="legend-color" style="background: #4CAF50;"></div>
+            <span>🔍 Scout</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #2196F3;"></div>
+            <span>📦 Carrier</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #FF9800;"></div>
+            <span>🛡️ Blocker</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #9E9E9E;"></div>
+            <span>💤 Idle</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #F44336;"></div>
+            <span>🔥 Fire</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: #795548;"></div>
+            <span>🚧 Blockage</span>
+        </div>
+    </div>
+    
+    <div class="webgpu-badge" style="display: none;" id="webgpu-badge">
+        ⚡ WebGPU Accelerated
+    </div>
+    
+    <div id="controls" style="display: none;">
+        <button id="pauseBtn">⏸ Pause</button>
+        <button id="resetBtn">🔄 Reset</button>
+        <button id="speedBtn">⚡ Speed: 1x</button>
+        <button id="visionBtn">👁️ Vision: OFF</button>
+    </div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
+    
+    <script>
+        let scene, camera, renderer, controls;
+        let pyodide;
+        let simulationRunning = false;
+        let simulationSpeed = 1;
+        let robotMeshes = {};
+        let hazardMeshes = {};
+        let buildingMeshes = [];
+        let visionDebugEnabled = false;
+        let visionCanvas, visionCtx;
+        let selectedRobotId = 0;
+        let useWebGPU = false;
+        
+        // Physics state
+        let physicsTime = 0;
+        let lastPhysicsUpdate = 0;
+        const PHYSICS_TIMESTEP = 1/60;
+        
+        const roleColors = {
+            'scout': 0x4CAF50,
+            'carrier': 0x2196F3,
+            'blocker': 0xFF9800,
+            'idle': 0x9E9E9E
+        };
+
+        const roleIcons = {
+            'scout': '🔍',
+            'carrier': '📦',
+            'blocker': '🛡️',
+            'idle': '💤'
+        };
+        
+        async function initPyodide() {
+            try {
+                console.log('Loading Pyodide...');
+                pyodide = await loadPyodide();
+                console.log('Pyodide loaded successfully');
+                
+                console.log('Loading NumPy...');
+                await pyodide.loadPackage(['numpy']);
+                console.log('NumPy loaded successfully');
+                
+                let pythonCode;
+                try {
+                    console.log('Fetching robot_fleet_logic.py...');
+                    const response = await fetch('robot_fleet_logic.py');
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    pythonCode = await response.text();
+                    console.log('Python file loaded successfully');
+                } catch (error) {
+                    console.error('Error loading Python file:', error);
+                    document.getElementById('loading').innerHTML = `
+                        <h2 style="color: #F44336;">❌ Failed to Load Python File</h2>
+                        <p style="margin-top: 10px;">Error: ${error.message}</p>
+                        <p style="margin-top: 10px; font-size: 12px; color: #aaa;">
+                            Make sure 'robot_fleet_logic.py' is in the same directory as this HTML file.
+                        </p>
+                    `;
+                    return;
+                }
+                
+                console.log('Running Python code...');
+                await pyodide.runPythonAsync(pythonCode);
+                console.log('Python code executed successfully');
+                
+                console.log('Getting initial state...');
+                const stateJson = pyodide.runPython('get_current_state()');
+                const state = JSON.parse(stateJson);
+                console.log('Initial state:', state);
+                
+                buildCity(state);
+                
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('info-panel').style.display = 'block';
+                document.querySelector('.legend').style.display = 'block';
+                document.getElementById('controls').style.display = 'flex';
+                if (useWebGPU) {
+                    document.getElementById('webgpu-badge').style.display = 'block';
+                }
+                
+                simulationRunning = true;
+                lastPhysicsUpdate = performance.now();
+                animate();
+                
+                console.log('Simulation started successfully!');
+            } catch (error) {
+                console.error('Fatal error during initialization:', error);
+                document.getElementById('loading').innerHTML = `
+                    <h2 style="color: #F44336;">❌ Initialization Failed</h2>
+                    <p style="margin-top: 10px;">Error: ${error.message}</p>
+                    <p style="margin-top: 10px; font-size: 12px; color: #aaa;">
+                        Check the browser console (F12) for more details.
+                    </p>
+                `;
+            }
+        }
+        
+        async function initThreeJS() {
+            console.log('Initializing Three.js...');
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a0e27);
+            scene.fog = new THREE.Fog(0x0a0e27, 150, 400);
+            
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(100, 120, 180);
+            
+            // Try WebGPU first, fallback to WebGL
+            try {
+                if (navigator.gpu) {
+                    console.log('WebGPU available, attempting to use it...');
+                    // Note: Three.js r128 doesn't have native WebGPU support
+                    // This is a placeholder - would need Three.js r140+ for real WebGPU
+                    console.log('WebGPU detected but Three.js r128 uses WebGL. Upgrade to r140+ for WebGPU.');
+                    useWebGPU = false;
+                }
+            } catch (e) {
+                console.log('WebGPU not available, using WebGL');
+                useWebGPU = false;
+            }
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.getElementById('container').appendChild(renderer.domElement);
+            
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.target.set(100, 0, 100);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            
+            const ambientLight = new THREE.AmbientLight(0x606080, 1);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(-100, 100, 50);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.camera.left = -150;
+            directionalLight.shadow.camera.right = 150;
+            directionalLight.shadow.camera.top = 150;
+            directionalLight.shadow.camera.bottom = -150;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            scene.add(directionalLight);
+            
+            const groundGeometry = new THREE.PlaneGeometry(200, 200);
+            const groundMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x1a1f3a,
+                roughness: 0.8 
+            });
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.set(100, 0, 100);
+            ground.receiveShadow = true;
+            scene.add(ground);
+            
+            const gridHelper = new THREE.GridHelper(200, 20, 0x64c8ff, 0x2a3f5f);
+            gridHelper.position.set(100, 0.1, 100);
+            scene.add(gridHelper);
+            
+            // Initialize vision canvas
+            visionCanvas = document.getElementById('vision-canvas');
+            visionCtx = visionCanvas.getContext('2d');
+            
+            window.addEventListener('resize', onWindowResize, false);
+            console.log('Three.js initialized successfully');
+        }
+        
+        function buildCity(state) {
+            buildingMeshes.forEach(mesh => scene.remove(mesh));
+            buildingMeshes = [];
+            
+            if (state.city && state.city.buildings) {
+                state.city.buildings.forEach(building => {
+                    const mesh = createBuilding(building);
+                    buildingMeshes.push(mesh);
+                    scene.add(mesh);
+                });
+            }
+            
+            if (state.city && state.city.roads) {
+                const roadMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x222222,
+                    roughness: 0.9 
+                });
+                const roadGeometryCache = {};
+                
+                state.city.roads.forEach(road => {
+                    const sizeKey = `${road.size.x}_${road.size.y}_${road.size.z}`;
+                    if (!roadGeometryCache[sizeKey]) {
+                        roadGeometryCache[sizeKey] = new THREE.BoxGeometry(
+                            road.size.x, road.size.y, road.size.z
+                        );
+                    }
+                    const mesh = new THREE.Mesh(roadGeometryCache[sizeKey], roadMaterial);
+                    mesh.position.set(road.position.x, road.position.y, road.position.z);
+                    mesh.receiveShadow = true;
+                    buildingMeshes.push(mesh);
+                    scene.add(mesh);
+                });
+            }
+        }
+        
+        function createBuilding(building) {
+            const geometry = new THREE.BoxGeometry(
+                building.size.x, building.size.y, building.size.z
+            );
+            const material = new THREE.MeshStandardMaterial({ 
+                color: 0x3a4a6b, 
+                metalness: 0.2,
+                roughness: 0.7 
+            });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.position.set(building.position.x, building.position.y, building.position.z);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            return mesh;
+        }
+        
+        function createRobot(agent) {
+            const group = new THREE.Group();
+            
+            let bodyGeometry;
+            if (agent.type === 'wheeled') {
+                bodyGeometry = new THREE.BoxGeometry(2, 1, 3);
+                
+                // Add wheels for wheeled robots
+                const wheelGeometry = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 16);
+                const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
+                
+                const wheelPositions = [
+                    [-1, -0.3, 1], [1, -0.3, 1], [-1, -0.3, -1], [1, -0.3, -1]
+                ];
+                
+                const wheels = [];
+                wheelPositions.forEach(pos => {
+                    const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                    wheel.position.set(pos[0], pos[1], pos[2]);
+                    wheel.rotation.z = Math.PI / 2;
+                    group.add(wheel);
+                    wheels.push(wheel);
+                });
+                group.userData.wheels = wheels;
+                
+            } else if (agent.type === 'legged') {
+                bodyGeometry = new THREE.SphereGeometry(1, 16, 16);
+                
+                // Add legs for legged robots
+                const legGeometry = new THREE.CylinderGeometry(0.15, 0.15, 1.5, 8);
+                const legMaterial = new THREE.MeshStandardMaterial({ color: 0x555555 });
+                
+                const legPositions = [
+                    [0.5, -0.75, 0.5], [-0.5, -0.75, 0.5], 
+                    [0.5, -0.75, -0.5], [-0.5, -0.75, -0.5]
+                ];
+                
+                const legs = [];
+                legPositions.forEach(pos => {
+                    const leg = new THREE.Mesh(legGeometry, legMaterial);
+                    leg.position.set(pos[0], pos[1], pos[2]);
+                    group.add(leg);
+                    legs.push(leg);
+                });
+                group.userData.legs = legs;
+                
+            } else {
+                bodyGeometry = new THREE.CylinderGeometry(1, 1, 2, 16);
+                
+                // Hybrid: add both wheels and small stabilizers
+                const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 16);
+                const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
+                
+                const wheels = [];
+                [[-0.8, -0.8, 0], [0.8, -0.8, 0]].forEach(pos => {
+                    const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                    wheel.position.set(pos[0], pos[1], pos[2]);
+                    wheel.rotation.z = Math.PI / 2;
+                    group.add(wheel);
+                    wheels.push(wheel);
+                });
+                group.userData.wheels = wheels;
+            }
+            
+            const bodyMaterial = new THREE.MeshStandardMaterial({ 
+                color: roleColors[agent.role] || 0x9E9E9E,
+                metalness: 0.6,
+                roughness: 0.4
+            });
+            
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.castShadow = true;
+            body.receiveShadow = true;
+            body.position.y = (agent.type === 'legged') ? 1 : 1.5;
+            
+            group.add(body);
+            
+            // Front indicator cone
+            const frontGeometry = new THREE.ConeGeometry(0.5, 1, 4);
+            const frontMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
+            const front = new THREE.Mesh(frontGeometry, frontMaterial);
+            front.rotation.x = Math.PI / 2;
+            
+            if (agent.type === 'wheeled') {
+                front.position.set(0, 0.5, 2);
+            } else if (agent.type === 'legged') {
+                front.position.set(0, 1, 1.2);
+            } else {
+                front.position.set(0, 1.5, 1.5);
+            }
+            
+            group.add(front);
+            
+            // Add role icon sprite
+            const canvas = document.createElement('canvas');
+            canvas.width = 64;
+            canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            ctx.font = 'bold 48px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(roleIcons[agent.role] || '❓', 32, 32);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
+            const sprite = new THREE.Sprite(spriteMaterial);
+            sprite.scale.set(2, 2, 1);
+            sprite.position.y = 3.5;
+            group.add(sprite);
+            group.userData.roleSprite = sprite;
+            
+            group.position.set(agent.position.x, 0, agent.position.z);
+            group.userData = { 
+                agentId: agent.id, 
+                body: body, 
+                lastPos: new THREE.Vector3(agent.position.x, 0, agent.position.z),
+                animationTime: 0,
+                type: agent.type,
+                roleSprite: sprite
+            };
+            
+            return group;
+        }
+        
+        function updateRobotAnimation(mesh, deltaTime, velocity) {
+            if (!mesh.userData) return;
+            
+            mesh.userData.animationTime += deltaTime;
+            const time = mesh.userData.animationTime;
+            const speed = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
+            
+            if (mesh.userData.type === 'wheeled' && mesh.userData.wheels) {
+                // Rotate wheels
+                mesh.userData.wheels.forEach(wheel => {
+                    wheel.rotation.x += speed * deltaTime * 5;
+                });
+            } else if (mesh.userData.type === 'legged' && mesh.userData.legs) {
+                // Animate legs walking
+                mesh.userData.legs.forEach((leg, i) => {
+                    const phase = i * Math.PI / 2;
+                    leg.rotation.x = Math.sin(time * 5 + phase) * 0.3 * speed;
+                });
+            } else if (mesh.userData.type === 'hybrid' && mesh.userData.wheels) {
+                // Rotate hybrid wheels
+                mesh.userData.wheels.forEach(wheel => {
+                    wheel.rotation.x += speed * deltaTime * 4;
+                });
+            }
+        }
+        
+        function createHazard(hazard) {
+            const group = new THREE.Group();
+            
+            if (hazard.type === 'fire') {
+                const coneGeometry = new THREE.ConeGeometry(1.5, 3, 8);
+                const coneMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0xF44336,
+                    emissive: 0xFF5722,
+                    emissiveIntensity: hazard.severity,
+                    transparent: true,
+                    opacity: 0.8
+                });
+                const cone = new THREE.Mesh(coneGeometry, coneMaterial);
+                cone.position.y = 1.5;
+                group.add(cone);
+                group.userData.cone = cone;
+                
+                const light = new THREE.PointLight(0xFF5722, 2, 20);
+                light.position.y = 3;
+                group.add(light);
+                group.userData.light = light;
+            } else {
+                const boxGeometry = new THREE.BoxGeometry(2.5, 2.5, 2.5);
+                const boxMaterial = new THREE.MeshStandardMaterial({ color: 0x795548 });
+                const box = new THREE.Mesh(boxGeometry, boxMaterial);
+                box.position.y = 1.25;
+                box.castShadow = true;
+                group.add(box);
+            }
+            
+            group.position.set(hazard.position.x, 0, hazard.position.z);
+            group.userData = { hazardId: hazard.id, type: hazard.type, animTime: 0 };
+            return group;
+        }
+        
+        function animateHazard(mesh, deltaTime) {
+            if (!mesh.userData) return;
+            mesh.userData.animTime += deltaTime;
+            
+            if (mesh.userData.type === 'fire') {
+                // Flicker fire
+                if (mesh.userData.cone) {
+                    const flicker = Math.sin(mesh.userData.animTime * 10) * 0.1 + 0.9;
+                    mesh.userData.cone.material.emissiveIntensity = flicker;
+                }
+                if (mesh.userData.light) {
+                    const flicker = Math.sin(mesh.userData.animTime * 10) * 0.5 + 1.5;
+                    mesh.userData.light.intensity = flicker;
+                }
+            }
+        }
+        
+        function drawVisionDebug(state) {
+            if (!visionDebugEnabled || !state.agents.length) return;
+            
+            const ctx = visionCtx;
+            const canvas = visionCanvas;
+            
+            // Clear canvas
+            ctx.fillStyle = '#0a0e27';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Get selected robot
+            const robot = state.agents.find(a => a.id === selectedRobotId) || state.agents[0];
+            if (!robot) return;
+            
+            // Draw title
+            ctx.fillStyle = '#64c8ff';
+            ctx.font = 'bold 14px Arial';
+            ctx.fillText(`Robot #${robot.id} Vision (${robot.role})`, 10, 20);
+            
+            // Draw robot position as center
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const scale = 2;
+            
+            // Draw robot
+            ctx.fillStyle = '#' + roleColors[robot.role].toString(16).padStart(6, '0');
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 5, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Draw detection radius
+            ctx.strokeStyle = 'rgba(100, 200, 255, 0.3)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, 20 * scale, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            // Draw hazards
+            state.hazards.forEach(hazard => {
+                const dx = hazard.position.x - robot.position.x;
+                const dz = hazard.position.z - robot.position.z;
+                const dist = Math.sqrt(dx * dx + dz * dz);
+                
+                if (dist < 50) { // Show hazards within range
+                    const x = centerX + dx * scale;
+                    const y = centerY + dz * scale;
+                    
+                    ctx.fillStyle = hazard.type === 'fire' ? '#F44336' : '#795548';
+                    ctx.beginPath();
+                    ctx.arc(x, y, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // Draw line to hazard if detected
+                    if (dist < 20) {
+                        ctx.strokeStyle = 'rgba(255, 100, 100, 0.5)';
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        ctx.moveTo(centerX, centerY);
+                        ctx.lineTo(x, y);
+                        ctx.stroke();
+                    }
+                }
+            });
+            
+            // Draw other agents
+            state.agents.forEach(agent => {
+                if (agent.id === robot.id) return;
+                
+                const dx = agent.position.x - robot.position.x;
+                const dz = agent.position.z - robot.position.z;
+                const dist = Math.sqrt(dx * dx + dz * dz);
+                
+                if (dist < 50) {
+                    const x = centerX + dx * scale;
+                    const y = centerY + dz * scale;
+                    
+                    ctx.fillStyle = '#' + roleColors[agent.role].toString(16).padStart(6, '0');
+                    ctx.globalAlpha = 0.6;
+                    ctx.beginPath();
+                    ctx.arc(x, y, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.globalAlpha = 1.0;
+                }
+            });
+            
+            // Draw info text
+            ctx.fillStyle = '#aaa';
+            ctx.font = '10px monospace';
+            ctx.fillText(`Energy: ${robot.energy.toFixed(1)}`, 10, canvas.height - 30);
+            ctx.fillText(`Detected: ${robot.detected_hazards}`, 10, canvas.height - 15);
+        }
+        
+        function updateSimulation() {
+            if (!pyodide || !simulationRunning) return;
+            
+            try {
+                const stateJson = pyodide.runPython('step_simulation()');
+                const state = JSON.parse(stateJson);
+                
+                if (state.error) {
+                    console.error('Simulation error:', state.error);
+                    return;
+                }
+                
+                const seenHazards = new Set();
+                state.hazards.forEach(hazard => {
+                    seenHazards.add(hazard.id);
+                    if (!hazardMeshes[hazard.id]) {
+                        const mesh = createHazard(hazard);
+                        hazardMeshes[hazard.id] = mesh;
+                        scene.add(mesh);
+                    }
+                });
+                
+                Object.keys(hazardMeshes).forEach(id => {
+                    if (!seenHazards.has(id)) {
+                        scene.remove(hazardMeshes[id]);
+                        delete hazardMeshes[id];
+                    }
+                });
+                
+                const seenAgents = new Set();
+                state.agents.forEach(agent => {
+                    seenAgents.add(agent.id);
+                    if (!robotMeshes[agent.id]) {
+                        const mesh = createRobot(agent);
+                        robotMeshes[agent.id] = mesh;
+                        scene.add(mesh);
+                    } else {
+                        const mesh = robotMeshes[agent.id];
+                        const newPos = new THREE.Vector3(agent.position.x, 0, agent.position.z);
+                        
+                        // Calculate velocity for animation
+                        const velocity = new THREE.Vector3().subVectors(newPos, mesh.userData.lastPos);
+                        
+                        // Smooth position interpolation
+                        mesh.position.lerp(newPos, 0.2);
+                        
+                        // Update color based on role
+                        mesh.userData.body.material.color.setHex(roleColors[agent.role] || 0x9E9E9E);
+                        
+                        // Update role icon
+                        if (mesh.userData.roleSprite) {
+                            const canvas = document.createElement('canvas');
+                            canvas.width = 64;
+                            canvas.height = 64;
+                            const ctx = canvas.getContext('2d');
+                            ctx.font = 'bold 48px Arial';
+                            ctx.textAlign = 'center';
+                            ctx.textBaseline = 'middle';
+                            ctx.fillText(roleIcons[agent.role] || '❓', 32, 32);
+                            mesh.userData.roleSprite.material.map = new THREE.CanvasTexture(canvas);
+                            mesh.userData.roleSprite.material.needsUpdate = true;
+                        }
+                        
+                        // Update rotation based on movement
+                        if (velocity.lengthSq() > 0.001) {
+                            const targetRotation = Math.atan2(velocity.x, velocity.z);
+                            mesh.rotation.y += (targetRotation - mesh.rotation.y) * 0.2;
+                        }
+                        
+                        mesh.userData.lastPos.copy(newPos);
+                    }
+                });
+                
+                Object.keys(robotMeshes).forEach(idStr => {
+                    const id = parseInt(idStr, 10);
+                    if (!seenAgents.has(id)) {
+                        scene.remove(robotMeshes[id]);
+                        delete robotMeshes[id];
+                    }
+                });
+                
+                updateUI(state);
+                
+                if (visionDebugEnabled) {
+                    drawVisionDebug(state);
+                }
+            } catch (error) {
+                console.error('Simulation step error:', error);
+            }
+        }
+        
+        function updateUI(state) {
+            document.getElementById('timestep').textContent = state.timestep;
+            document.getElementById('agents').textContent = state.agents.length;
+            document.getElementById('hazards').textContent = state.stats.total_hazards_detected;
+            document.getElementById('reward').textContent = state.stats.avg_reward.toFixed(2);
+            
+            const rolesDiv = document.getElementById('roles');
+            rolesDiv.innerHTML = '';
+            const roleDistribution = state.stats.role_distribution || {};
+            
+            for (const roleName of ['scout', 'carrier', 'blocker', 'idle']) {
+                const count = roleDistribution[roleName] || 0;
+                const div = document.createElement('div');
+                div.className = 'stat-row';
+                div.innerHTML = `
+                    <span class="stat-label" style="text-transform: capitalize;">${roleIcons[roleName]} ${roleName}:</span>
+                    <span class="stat-value">${count}</span>
+                `;
+                rolesDiv.appendChild(div);
+            }
+        }
+        
+        let frameCount = 0;
+        let lastFrameTime = performance.now();
+        let fpsCounter = 0;
+        let lastFpsUpdate = performance.now();
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const now = performance.now();
+            const deltaTime = (now - lastFrameTime) / 1000;
+            lastFrameTime = now;
+            
+            // Update FPS counter
+            fpsCounter++;
+            if (now - lastFpsUpdate > 1000) {
+                document.getElementById('physics-fps').textContent = fpsCounter;
+                fpsCounter = 0;
+                lastFpsUpdate = now;
+            }
+            
+            // Update controls for smooth damping
+            controls.update();
+            
+            // Animate robots
+            Object.values(robotMeshes).forEach(mesh => {
+                const velocity = new THREE.Vector3().subVectors(
+                    mesh.position, 
+                    mesh.userData.lastPos
+                ).multiplyScalar(1/deltaTime);
+                updateRobotAnimation(mesh, deltaTime, velocity);
+            });
+            
+            // Animate hazards
+            Object.values(hazardMeshes).forEach(mesh => {
+                animateHazard(mesh, deltaTime);
+            });
+            
+            frameCount++;
+            const speedInterval = Math.max(1, Math.floor(6 / simulationSpeed));
+            if (frameCount % speedInterval === 0) {
+                updateSimulation();
+            }
+            
+            renderer.render(scene, camera);
+        }
+        
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        document.getElementById('pauseBtn').addEventListener('click', () => {
+            simulationRunning = !simulationRunning;
+            document.getElementById('pauseBtn').textContent = simulationRunning ? '⏸ Pause' : '▶ Play';
+        });
+        
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            if (pyodide) {
+                console.log('Resetting simulation...');
+                Object.values(robotMeshes).forEach(mesh => scene.remove(mesh));
+                Object.values(hazardMeshes).forEach(mesh => scene.remove(mesh));
+                buildingMeshes.forEach(mesh => scene.remove(mesh));
+                robotMeshes = {};
+                hazardMeshes = {};
+                
+                const stateJson = pyodide.runPython('reset_simulation()');
+                const state = JSON.parse(stateJson);
+                
+                buildCity(state);
+                console.log('Simulation reset.');
+            }
+        });
+        
+        document.getElementById('speedBtn').addEventListener('click', () => {
+            const speeds = [1, 2, 4];
+            const currentIndex = speeds.indexOf(simulationSpeed);
+            simulationSpeed = speeds[(currentIndex + 1) % speeds.length];
+            document.getElementById('speedBtn').textContent = `⚡ Speed: ${simulationSpeed}x`;
+        });
+        
+        document.getElementById('visionBtn').addEventListener('click', () => {
+            visionDebugEnabled = !visionDebugEnabled;
+            document.getElementById('visionBtn').textContent = `👁️ Vision: ${visionDebugEnabled ? 'ON' : 'OFF'}`;
+            document.getElementById('vision-canvas').style.display = visionDebugEnabled ? 'block' : 'none';
+            
+            if (visionDebugEnabled) {
+                // Cycle through robots on subsequent clicks when already enabled
+                const agents = Object.keys(robotMeshes).map(id => parseInt(id));
+                if (agents.length > 0) {
+                    const currentIndex = agents.indexOf(selectedRobotId);
+                    selectedRobotId = agents[(currentIndex + 1) % agents.length];
+                }
+            }
+        });
+        
+        initThreeJS();
+        initPyodide();
+    </script>
+</body>
+</html>
